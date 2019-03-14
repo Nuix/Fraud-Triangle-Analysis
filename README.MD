@@ -24,12 +24,6 @@ This script relies on code from [Nx](https://github.com/Nuix/Nx) to present a se
 
 Once you have a copy of Nx.jar, make sure to include it in the same directory as the script.
 
-This script also relies on code from [SuperUtilities](https://github.com/Nuix/SuperUtilities), which contains the code to do the report generation.  This JAR file is not included in the repository (although it is included in release downloads).  If you clone this repository, you will also want to obtain a copy of SuperUtilities.jar by either:
-1. Building it from [the source](https://github.com/Nuix/SuperUtilities)
-2. Downloading an already built JAR file from the [Nx releases](https://github.com/Nuix/SuperUtilities/releases)
-
-Once you also have a copy of SuperUtilities.jar, make sure to include it in the same directory as the script.
-
 # License
 
 ```
