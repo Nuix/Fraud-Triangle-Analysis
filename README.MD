@@ -36,6 +36,17 @@ Additionally the script can apply tags to items based upon which categories and 
 | `{category}` | Resolves to relevant category name, i.e.: `Opportunity`, `Pressure` OR `Rationalization` |
 | `{email}` | Resolves to the relevant email address which made the match. |
 
+The default tag template is:
+
+`Fraud Triangle|{category}|{email}`
+
+Which might resolve to tags such as:
+
+- `Fraud Triangle|Opportunity|Bob@Fake.biz`
+- `Fraud Triangle|Pressure|Guy@IzFake.info`
+- `Fraud Triangle|Rationalization|Lady@NotReel.uk`
+- And so on...
+
 # Getting Started
 
 ## Setup
