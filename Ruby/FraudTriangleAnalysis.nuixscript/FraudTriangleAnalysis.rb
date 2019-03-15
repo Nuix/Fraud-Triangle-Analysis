@@ -14,14 +14,38 @@ LookAndFeelHelper.setWindowsIfMetal
 NuixConnection.setUtilities($utilities)
 NuixConnection.setCurrentNuixVersion(NUIX_VERSION)
 
+require 'csv'
+
 dialog = TabbedCustomDialog.new("Fraud Triangle Analysis")
 
 case_date_range = $current_case.getStatistics.getCaseDateRange
 
 # Define the word lists used for each category
 opportunity_word_list = "Fraud Triangle Analysis - Opportunity"
-rationalization_word_list = "Fraud Triangle Analysis - Opportunity"
-pressure_word_list = "Fraud Triangle Analysis - Opportunity"
+rationalization_word_list = "Fraud Triangle Analysis - Rationalization"
+pressure_word_list = "Fraud Triangle Analysis - Pressure"
+
+# Make sure these word lists exist
+def word_list_exists(name)
+	begin
+		$current_case.count("word-list:\"#{name}\"")
+		return true
+	rescue Exception => exc
+		return false
+	end
+end
+
+missing_word_lists = []
+missing_word_lists << opportunity_word_list if !word_list_exists(opportunity_word_list)
+missing_word_lists << rationalization_word_list if !word_list_exists(rationalization_word_list)
+missing_word_lists << pressure_word_list if !word_list_exists(pressure_word_list)
+if missing_word_lists.size > 0
+	message = "Could not locate required word lists:\n\n"
+	message += "#{missing_word_lists.join("\n")}\n\n"
+	message += "Please make sure these exist before running this script."
+	CommonDialogs.showError(message,"Fraud Triangle Analysis - Missing Word Lists")
+	exit 1
+end
 
 # Get case earliest and latest date values.  Nuix returns LocalDate objects, Nx date picker accepts
 # null / java.util.Date or YYYYMMDD string, so we are going to coerce to string in right format
@@ -29,14 +53,48 @@ case_earliest_date = case_date_range.getEarliest.toString.gsub("-","")
 case_latest_date = case_date_range.getLatest.toString.gsub("-","")
 
 main_tab = dialog.addTab("main_tab","Main")
+main_tab.appendSaveFileChooser("output_csv","Output CSV","Comma Separated Values (*.csv)","csv")
 main_tab.appendDatePicker("start_date","Start Date",case_earliest_date)
 main_tab.appendDatePicker("end_date","End Date",case_latest_date)
+main_tab.appendCheckBoxes("search_from","Search From",true,"search_to","Search To",true)
+main_tab.appendCheckBoxes("search_cc","Search CC",true,"search_bcc","Search BCC",true)
 main_tab.appendHeader("Email Addresses")
-main_tab.appendStringList("email_addresses",)
+main_tab.appendStringList("email_addresses")
+
+annotation_tab = dialog.addTab("annotation_tab","Annotations")
+annotation_tab.appendCheckableTextField("tag_items",false,"tag_template","Fraud Triangle|{category}|{email}","Tag Items with")
+annotation_tab.appendHeader("The placeholder {category} will be replaced with relevant category at run-time.")
+annotation_tab.appendHeader("The placeholder {email} will be replaced with relevant email address at run-time.")
+
+dialog.validateBeforeClosing do |values|
+	if values["email_addresses"].size < 1
+		CommonDialogs.showWarning("Please provide at least 1 email address.")
+		next false
+	end
+
+	if values["output_csv"].strip.empty?
+		CommonDialogs.showWarning("Please provide an output CSV file path.")
+		next false
+	end
+
+	if values["tag_items"] && values["tag_template"].strip.empty?
+		CommonDialogs.showWarning("Please provide a non-empy tag template.")
+		next false
+	end
+
+	if !values["search_from"] && !values["search_to"] && !values["search_cc"] && !values["search_bcc"]
+		CommonDialogs.showWarning("Please select at least one address field to search against.")
+		next false
+	end
+
+	next true
+end
 
 dialog.display
 if dialog.getDialogResult == true
 	values = dialog.toMap
+
+	output_csv = values["output_csv"]
 
 	# Coerce date picker values to strings which can be used in Nuix date range query
 	start_date = org.joda.time.DateTime.new(values["start_date"]).toString("YYYYMMdd")
@@ -48,34 +106,104 @@ if dialog.getDialogResult == true
 	# List of email addresses user provided
 	email_addresses = values["email_addresses"]
 
+	tag_items = values["tag_items"]
+	tag_template = values["tag_template"]
+
+	search_from = values["search_from"]
+	search_to = values["search_to"]
+	search_cc = values["search_cc"]
+	search_bcc = values["search_bcc"]
+
+	annotater = $utilities.getBulkAnnotater
+
 	ProgressDialog.forBlock do |pd|
 		pd.logMessage("Date Range: #{start_date} - #{end_date}")
 
-		email_addresses.each_with_index do |email_address,email_address_index|
+		CSV.open(output_csv,"w:utf-8") do |csv|
+			csv << [
+				"Email Address",
+				"Overall Email Count",
+				"Opportunity Count",
+				"Rationalization Count",
+				"Pressure Count",
+				"Opportunity Percentage",
+				"Rationalization Percentage",
+				"Pressure Percentage",
+			]
 
-			# Email address is used to generate a query for that email address in any of the communication fields
-			email_address_query = "(from:(#{email_address}) OR to:(#{email_address}) OR cc:(#{email_address}) OR bcc:(#{email_address}))"
-			overall_query = "kind:email AND #{comm_date_range_query} AND #{email_address_query}"
-			overall_count = $current_case.count(overall_query).to_f
+			email_addresses.each_with_index do |email_address,email_address_index|
 
-			# Get counts for items which meet our address criteria and have some of the category words in
-			# defined in the category terms word lists
-			opportunity_count_query = "#{overall_query} AND word-list:\"#{opportunity_word_list }\""
-			rationalization_count_query = "#{overall_query} AND word-list:\"#{rationalization_word_list }\""
-			pressure_count_query = "#{overall_query} AND word-list:\"#{pressure_word_list }\""
+				pd.setMainStatusAndLogIt("Processing: #{email_address}")
+				pd.setMainProgress(email_address_index+1,email_addresses.size)
 
-			# Do some math to calculate percentages
-			opportunity_count = $current_case.count(opportunity_count_query).to_f
-			rationalization_count = $current_case.count(rationalization_count_query).to_f
-			pressure_count = $current_case.count(pressure_count_query).to_f
+				# Email address is used to generate a query for that email address in the selected fields
+				field_sub_queries = []
+				field_sub_queries << "from:(#{email_address})" if search_from
+				field_sub_queries << "to:(#{email_address})" if search_to
+				field_sub_queries << "cc:(#{email_address})" if search_cc
+				field_sub_queries << "bcc:(#{email_address})" if search_bcc
 
-			# TODO: Do these make more sense as percentages like 83% rather than 0.83?
-			opportunity_rating = opportunity_count / overall_count
-			rationalization_rating = rationalization_count / overall_count
-			pressure_rating = pressure_count / overall_count
+				email_address_query = "(#{field_sub_queries.join(" OR ")})"
+				overall_query = "kind:email AND #{comm_date_range_query} AND #{email_address_query}"
+				overall_count = $current_case.count(overall_query).to_f
 
-			# TODO: Replace this debugging log message with reporting, annotations, etc...
-			pd.logMessage("Overall: #{overall_count.to_i}, Opportunity: #{opportunity_rating}, Rationalization: #{rationalization_rating}, Pressure: #{pressure_rating}")
+				# Get counts for items which meet our address criteria and have some of the category words in
+				# defined in the category terms word lists
+				opportunity_query = "#{overall_query} AND word-list:\"#{opportunity_word_list}\""
+				rationalization_query = "#{overall_query} AND word-list:\"#{rationalization_word_list}\""
+				pressure_query = "#{overall_query} AND word-list:\"#{pressure_word_list}\""
+
+				opportunity_items = $current_case.searchUnsorted(opportunity_query)
+				rationalization_items = $current_case.searchUnsorted(rationalization_query)
+				pressure_items = $current_case.searchUnsorted(pressure_query)
+
+				opportunity_count = opportunity_items.size.to_f
+				rationalization_count = rationalization_items.size.to_f
+				pressure_count = pressure_items.size.to_f
+
+				# Do some math to calculate percentages
+				opportunity_rating = ((opportunity_count / overall_count) * 100.0).round(2)
+				rationalization_rating = ((rationalization_count / overall_count) * 100.0).round(2)
+				pressure_rating = ((pressure_count / overall_count) * 100.0).round(2)
+
+				pd.logMessage("#{email_address} - Overall: #{overall_count.to_i}, Opportunity: #{opportunity_rating}%, Rationalization: #{rationalization_rating}%, Pressure: #{pressure_rating}%")
+
+				csv << [
+					email_address,
+					overall_count,
+					opportunity_count,
+					rationalization_count,
+					pressure_count,
+					"#{opportunity_rating} %",
+					"#{rationalization_rating} %",
+					"#{pressure_rating} %",
+				]
+
+				if tag_items
+					resolved_tag_template = tag_template.gsub(/\{category\}/,"Opportunity")
+					resolved_tag_template = resolved_tag_template.gsub(/\{email\}/,email_address)
+					pd.setSubStatusAndLogIt("Tagging #{opportunity_items.size} opportunity items with: #{resolved_tag_template}")
+					annotater.addTag(resolved_tag_template,opportunity_items) do |info|
+						pd.setSubProgress(info.stageCount,opportunity_items.size)
+					end
+
+					resolved_tag_template = tag_template.gsub(/\{category\}/,"Rationalization")
+					resolved_tag_template = resolved_tag_template.gsub(/\{email\}/,email_address)
+					pd.setSubStatusAndLogIt("Tagging #{rationalization_items.size} rationalization items with: #{resolved_tag_template}")
+					annotater.addTag(resolved_tag_template,rationalization_items) do |info|
+						pd.setSubProgress(info.stageCount,rationalization_items.size)
+					end
+
+					resolved_tag_template = tag_template.gsub(/\{category\}/,"Pressure")
+					resolved_tag_template = resolved_tag_template.gsub(/\{email\}/,email_address)
+					pd.setSubStatusAndLogIt("Tagging #{pressure_items.size} pressure items with: #{resolved_tag_template}")
+					annotater.addTag(resolved_tag_template,pressure_items) do |info|
+						pd.setSubProgress(info.stageCount,pressure_items.size)
+					end
+				end
+			end
 		end
+
+		pd.setCompleted
 	end
 end
