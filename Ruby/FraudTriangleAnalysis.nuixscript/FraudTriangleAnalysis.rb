@@ -56,20 +56,101 @@ main_tab = dialog.addTab("main_tab","Main")
 main_tab.appendSaveFileChooser("output_csv","Output CSV","Comma Separated Values (*.csv)","csv")
 main_tab.appendDatePicker("start_date","Start Date",case_earliest_date)
 main_tab.appendDatePicker("end_date","End Date",case_latest_date)
-main_tab.appendCheckBoxes("search_from","Search From",true,"search_to","Search To",true)
-main_tab.appendCheckBoxes("search_cc","Search CC",true,"search_bcc","Search BCC",true)
-main_tab.appendHeader("Email Addresses")
-main_tab.appendStringList("email_addresses")
+
+emails_tab = dialog.addTab("emails_tab","Emails")
+emails_tab.appendCheckBoxes("search_from","Search From",true,"search_to","Search To",true)
+emails_tab.appendCheckBoxes("search_cc","Search CC",true,"search_bcc","Search BCC",true)
+emails_tab.appendHeader("Email Addresses")
+emails_tab.appendStringList("email_addresses")
+
+queries_tab = dialog.addTab("queries_tab","Queries")
+headers = ["Name","Query"]
+records = []
+queries_tab.appendDynamicTable("named_queries","Named Queries",headers,records) do |record,col_index,set_value,value|
+	if set_value
+		case col_index
+		when 0
+			record[:name] = value
+		when 1
+			record[:query] = value
+		end
+	else
+		case col_index
+		when 0
+			next record[:name]
+		when 1
+			next record[:query]
+		end
+	end
+end
+dynamic_table = queries_tab.getControl("named_queries")
+dynamic_table.getModel.setColumnEditable(0)
+dynamic_table.getModel.setColumnEditable(1)
+dynamic_table.setUserCanAddRecords(true) do
+	next {
+		:name => "",
+		:query => "",
+	}
+end
 
 annotation_tab = dialog.addTab("annotation_tab","Annotations")
-annotation_tab.appendCheckableTextField("tag_items",false,"tag_template","Fraud Triangle|{category}|{email}","Tag Items with")
+annotation_tab.appendCheckableTextField("tag_items",false,"tag_template","Fraud Triangle|{category}|{id}","Tag Items with")
 annotation_tab.appendHeader("The placeholder {category} will be replaced with relevant category at run-time.")
-annotation_tab.appendHeader("The placeholder {email} will be replaced with relevant email address at run-time.")
+annotation_tab.appendHeader("The placeholder {id} will be replaced with relevant email address for items found by an email address and 'Name' for named queries.")
 
 dialog.validateBeforeClosing do |values|
-	if values["email_addresses"].size < 1
-		CommonDialogs.showWarning("Please provide at least 1 email address.")
+	if values["email_addresses"].size < 1 && values["named_queries"].size < 1
+		CommonDialogs.showWarning("Please provide at least 1 email address or 1 query.")
 		next false
+	end
+
+	if values["email_addresses"].size > 0
+		values["email_addresses"].each_with_index do |email_address,email_address_index|
+			issue_found = false
+			issue_message = ""
+			if email_address.strip.empty?
+				issue_found = true
+				issue_message = "Email address #{email_address_index+1} is blank, but cannot be blank."
+				break
+			end
+		end
+
+		if issue_found
+			CommonDialogs.showWarning(issue_message)
+			next false
+		end
+	end
+
+	if values["named_queries"].size > 0
+		issue_found = false
+		issue_message = ""
+		values["named_queries"].each_with_index do |named_query,named_query_index|
+			name = named_query[:name]
+			query = named_query[:query]
+			if name.strip.empty?
+				issue_message = "Named query #{named_query_index+1} has no name."
+				issue_found = true
+				break
+			end
+			if query.strip.empty?
+				issue_message = "Named query #{named_query_index+1} has no query."
+				issue_found = true
+				break
+			else
+				begin
+					$current_case.search(query,{"limit"=>0})
+				rescue Exception => exc
+					issue_message = "Named query #{named_query_index+1} has an invalid query: #{exc.message}"
+					issue_found = true
+					break
+				end
+			end
+		end
+
+		if issue_found
+			CommonDialogs.showWarning(issue_message)
+			next false
+		end
 	end
 
 	if values["output_csv"].strip.empty?
@@ -114,6 +195,8 @@ if dialog.getDialogResult == true
 	search_cc = values["search_cc"]
 	search_bcc = values["search_bcc"]
 
+	named_queries = values["named_queries"]
+
 	annotater = $utilities.getBulkAnnotater
 
 	ProgressDialog.forBlock do |pd|
@@ -121,8 +204,9 @@ if dialog.getDialogResult == true
 
 		CSV.open(output_csv,"w:utf-8") do |csv|
 			csv << [
+				"Query Name",
 				"Email Address",
-				"Overall Email Count",
+				"Overall Item Count",
 				"Opportunity Count",
 				"Rationalization Count",
 				"Pressure Count",
@@ -169,6 +253,7 @@ if dialog.getDialogResult == true
 				pd.logMessage("#{email_address} - Overall: #{overall_count.to_i}, Opportunity: #{opportunity_rating}%, Rationalization: #{rationalization_rating}%, Pressure: #{pressure_rating}%")
 
 				csv << [
+					"",
 					email_address,
 					overall_count,
 					opportunity_count,
@@ -181,21 +266,83 @@ if dialog.getDialogResult == true
 
 				if tag_items
 					resolved_tag_template = tag_template.gsub(/\{category\}/,"Opportunity")
-					resolved_tag_template = resolved_tag_template.gsub(/\{email\}/,email_address)
+					resolved_tag_template = resolved_tag_template.gsub(/\{id\}/,email_address)
 					pd.setSubStatusAndLogIt("Tagging #{opportunity_items.size} opportunity items with: #{resolved_tag_template}")
 					annotater.addTag(resolved_tag_template,opportunity_items) do |info|
 						pd.setSubProgress(info.stageCount,opportunity_items.size)
 					end
 
 					resolved_tag_template = tag_template.gsub(/\{category\}/,"Rationalization")
-					resolved_tag_template = resolved_tag_template.gsub(/\{email\}/,email_address)
+					resolved_tag_template = resolved_tag_template.gsub(/\{id\}/,email_address)
 					pd.setSubStatusAndLogIt("Tagging #{rationalization_items.size} rationalization items with: #{resolved_tag_template}")
 					annotater.addTag(resolved_tag_template,rationalization_items) do |info|
 						pd.setSubProgress(info.stageCount,rationalization_items.size)
 					end
 
 					resolved_tag_template = tag_template.gsub(/\{category\}/,"Pressure")
-					resolved_tag_template = resolved_tag_template.gsub(/\{email\}/,email_address)
+					resolved_tag_template = resolved_tag_template.gsub(/\{id\}/,email_address)
+					pd.setSubStatusAndLogIt("Tagging #{pressure_items.size} pressure items with: #{resolved_tag_template}")
+					annotater.addTag(resolved_tag_template,pressure_items) do |info|
+						pd.setSubProgress(info.stageCount,pressure_items.size)
+					end
+				end
+			end
+
+			named_queries.each do |named_query,named_query_index|
+				name = named_query[:name]
+				query = named_query[:query]
+				overall_count = $current_case.count(query).to_f
+
+				# Get counts for items which meet our criteria and have some of the category words in
+				# defined in the category terms word lists
+				opportunity_query = "#{query} AND word-list:\"#{opportunity_word_list}\""
+				rationalization_query = "#{query} AND word-list:\"#{rationalization_word_list}\""
+				pressure_query = "#{query} AND word-list:\"#{pressure_word_list}\""
+
+				opportunity_items = $current_case.searchUnsorted(opportunity_query)
+				rationalization_items = $current_case.searchUnsorted(rationalization_query)
+				pressure_items = $current_case.searchUnsorted(pressure_query)
+
+				opportunity_count = opportunity_items.size.to_f
+				rationalization_count = rationalization_items.size.to_f
+				pressure_count = pressure_items.size.to_f
+
+				# Do some math to calculate percentages
+				opportunity_rating = ((opportunity_count / overall_count) * 100.0).round(2)
+				rationalization_rating = ((rationalization_count / overall_count) * 100.0).round(2)
+				pressure_rating = ((pressure_count / overall_count) * 100.0).round(2)
+
+				pd.logMessage("#{name}/#{query} - Overall: #{overall_count.to_i}, Opportunity: #{opportunity_rating}%, Rationalization: #{rationalization_rating}%, Pressure: #{pressure_rating}%")
+
+				csv << [
+					name,
+					"",
+					overall_count,
+					opportunity_count,
+					rationalization_count,
+					pressure_count,
+					"#{opportunity_rating} %",
+					"#{rationalization_rating} %",
+					"#{pressure_rating} %",
+				]
+
+				if tag_items
+					resolved_tag_template = tag_template.gsub(/\{category\}/,"Opportunity")
+					resolved_tag_template = resolved_tag_template.gsub(/\{id\}/,name)
+					pd.setSubStatusAndLogIt("Tagging #{opportunity_items.size} opportunity items with: #{resolved_tag_template}")
+					annotater.addTag(resolved_tag_template,opportunity_items) do |info|
+						pd.setSubProgress(info.stageCount,opportunity_items.size)
+					end
+
+					resolved_tag_template = tag_template.gsub(/\{category\}/,"Rationalization")
+					resolved_tag_template = resolved_tag_template.gsub(/\{id\}/,name)
+					pd.setSubStatusAndLogIt("Tagging #{rationalization_items.size} rationalization items with: #{resolved_tag_template}")
+					annotater.addTag(resolved_tag_template,rationalization_items) do |info|
+						pd.setSubProgress(info.stageCount,rationalization_items.size)
+					end
+
+					resolved_tag_template = tag_template.gsub(/\{category\}/,"Pressure")
+					resolved_tag_template = resolved_tag_template.gsub(/\{id\}/,name)
 					pd.setSubStatusAndLogIt("Tagging #{pressure_items.size} pressure items with: #{resolved_tag_template}")
 					annotater.addTag(resolved_tag_template,pressure_items) do |info|
 						pd.setSubProgress(info.stageCount,pressure_items.size)

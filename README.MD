@@ -12,7 +12,7 @@ The [Fraud Triangle](https://en.wikipedia.org/wiki/Fraud_deterrence#Fraud_Triang
 2. Pressure - The need to commit fraud (money needs, etc)
 3. Rationalization - The individuals committing fraud rationalizing the act
 
-This script assists in surfacing these types of commincations by searching for emails which have matches against words or phrases present in several word lists.  The script comes with several words lists to get you started, but these are not exhaustive and it is recommended you enrich them with words relevant to your data.  The word lists included are:
+This script assists in surfacing these types of commincations by searching for items which have matches against words or phrases present in several word lists.  The script comes with several words lists to get you started, but these are not exhaustive and it is recommended you enrich them with words relevant to your data.  The word lists included are:
 
 - [Fraud Triangle Analysis - Opportunity](https://github.com/Nuix/Fraud-Triangle-Analysis/blob/master/Ruby/FraudTriangleAnalysis.nuixscript/Word%20Lists/Fraud%20Triangle%20Analysis%20-%20Opportunity.words)
 - [Fraud Triangle Analysis - Pressure](https://github.com/Nuix/Fraud-Triangle-Analysis/blob/master/Ruby/FraudTriangleAnalysis.nuixscript/Word%20Lists/Fraud%20Triangle%20Analysis%20-%20Pressure.words)
@@ -20,6 +20,7 @@ This script assists in surfacing these types of commincations by searching for e
 
 The script generates a CSV with:
 
+- Named Query
 - Email Address
 - Total Email Items with this Address (You can choose which address fields are searched)
 - Total Emails with Opportunity Word List Hits
@@ -29,16 +30,18 @@ The script generates a CSV with:
 - Percentage of Total Emails with Pressure Word List Hits
 - Percentage of Total Emails with Rationalization Word List Hits
 
+**Note:** `Named Query` column is only populated for rows generated from a named query and `Email Address` is only populated for rows generated from a named query.
+
 Additionally the script can apply tags to items based upon which categories and email addresses had a match.  The tag name applied is specified with a tag name template that accepts the following placeholders:
 
 | Placeholder | Resolves To |
 |-------------|-------------|
 | `{category}` | Resolves to relevant category name, i.e.: `Opportunity`, `Pressure` OR `Rationalization` |
-| `{email}` | Resolves to the relevant email address which made the match. |
+| `{id}` |Resolves to relevant email address for items found by an email address and 'Name' for named queries. |
 
 The default tag template is:
 
-`Fraud Triangle|{category}|{email}`
+`Fraud Triangle|{category}|{id}`
 
 Which might resolve to tags such as:
 
