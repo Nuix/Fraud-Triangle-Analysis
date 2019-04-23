@@ -57,13 +57,13 @@ main_tab.appendSaveFileChooser("output_csv","Output CSV","Comma Separated Values
 main_tab.appendDatePicker("start_date","Start Date",case_earliest_date)
 main_tab.appendDatePicker("end_date","End Date",case_latest_date)
 
-emails_tab = dialog.addTab("emails_tab","Emails")
+emails_tab = dialog.addTab("emails_tab","Email Addresses")
 emails_tab.appendCheckBoxes("search_from","Search From",true,"search_to","Search To",true)
 emails_tab.appendCheckBoxes("search_cc","Search CC",true,"search_bcc","Search BCC",true)
 emails_tab.appendHeader("Email Addresses")
 emails_tab.appendStringList("email_addresses")
 
-queries_tab = dialog.addTab("queries_tab","Queries")
+queries_tab = dialog.addTab("queries_tab","Named Queries")
 headers = ["Name","Query"]
 records = []
 queries_tab.appendDynamicTable("named_queries","Named Queries",headers,records) do |record,col_index,set_value,value|
@@ -87,10 +87,45 @@ dynamic_table = queries_tab.getControl("named_queries")
 dynamic_table.getModel.setColumnEditable(0)
 dynamic_table.getModel.setColumnEditable(1)
 dynamic_table.setUserCanAddRecords(true) do
+	# Need to define how a new record is created
 	next {
-		:name => "",
-		:query => "",
+		:name => "Query #{records.size+1}",
+		:query => "*:*",
 	}
+end
+dynamic_table.setDefaultCheckState(true)
+
+dialog.addMenu("Add Queries","Add Custodian Queries") do
+	$current_case.getAllCustodians.each do |custodian_name|
+		record = {
+			:name => "Custodian: #{custodian_name}",
+			:query => "custodian:\"#{custodian_name}\"",
+		}
+		dynamic_table.getModel.addRecord(record)
+	end
+	dialog.setSelectedTabIndex(2)
+end
+
+dialog.addMenu("Add Queries","Add Kind Queries") do
+	$utilities.getItemTypeUtility.getAllKinds.each do |kind|
+		record = {
+			:name => "Kind: #{kind.getName}",
+			:query => "kind:\"#{kind.getName}\"",
+		}
+		dynamic_table.getModel.addRecord(record)
+	end
+	dialog.setSelectedTabIndex(2)
+end
+
+dialog.addMenu("Add Queries","Add Evidence Queries") do
+	$current_case.getRootItems.each do |item|
+		record = {
+			:name => "Evidence: #{item.getLocalisedName}",
+			:query => "guid:#{item.getGuid} OR path-guid:#{item.getGuid}",
+		}
+		dynamic_table.getModel.addRecord(record)
+	end
+	dialog.setSelectedTabIndex(2)
 end
 
 annotation_tab = dialog.addTab("annotation_tab","Annotations")
@@ -246,9 +281,15 @@ if dialog.getDialogResult == true
 				pressure_count = pressure_items.size.to_f
 
 				# Do some math to calculate percentages
-				opportunity_rating = ((opportunity_count / overall_count) * 100.0).round(2)
-				rationalization_rating = ((rationalization_count / overall_count) * 100.0).round(2)
-				pressure_rating = ((pressure_count / overall_count) * 100.0).round(2)
+				opportunity_rating = 0.0
+				rationalization_rating = 0.0
+				pressure_rating = 0.0
+
+				if overall_count > 0
+					opportunity_rating = ((opportunity_count / overall_count) * 100.0).round(2)
+					rationalization_rating = ((rationalization_count / overall_count) * 100.0).round(2)
+					pressure_rating = ((pressure_count / overall_count) * 100.0).round(2)
+				end
 
 				pd.logMessage("#{email_address} - Overall: #{overall_count.to_i}, Opportunity: #{opportunity_rating}%, Rationalization: #{rationalization_rating}%, Pressure: #{pressure_rating}%")
 
@@ -308,9 +349,15 @@ if dialog.getDialogResult == true
 				pressure_count = pressure_items.size.to_f
 
 				# Do some math to calculate percentages
-				opportunity_rating = ((opportunity_count / overall_count) * 100.0).round(2)
-				rationalization_rating = ((rationalization_count / overall_count) * 100.0).round(2)
-				pressure_rating = ((pressure_count / overall_count) * 100.0).round(2)
+				opportunity_rating = 0.0
+				rationalization_rating = 0.0
+				pressure_rating = 0.0
+				
+				if overall_count > 0
+					opportunity_rating = ((opportunity_count / overall_count) * 100.0).round(2)
+					rationalization_rating = ((rationalization_count / overall_count) * 100.0).round(2)
+					pressure_rating = ((pressure_count / overall_count) * 100.0).round(2)
+				end
 
 				pd.logMessage("#{name}/#{query} - Overall: #{overall_count.to_i}, Opportunity: #{opportunity_rating}%, Rationalization: #{rationalization_rating}%, Pressure: #{pressure_rating}%")
 
