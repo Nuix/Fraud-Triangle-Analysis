@@ -30,7 +30,7 @@ The script generates a CSV with:
 - Percentage of Total Emails with Pressure Word List Hits
 - Percentage of Total Emails with Rationalization Word List Hits
 
-**Note:** `Named Query` column is only populated for rows generated from a named query and `Email Address` is only populated for rows generated from a named query.
+**Note:** `Named Query` column is only populated for rows generated from a named query and `Email Address` is only populated for rows generated from an email address.
 
 Additionally the script can apply tags to items based upon which categories and email addresses had a match.  The tag name applied is specified with a tag name template that accepts the following placeholders:
 
@@ -48,6 +48,7 @@ Which might resolve to tags such as:
 - `Fraud Triangle|Opportunity|Bob@Fake.biz`
 - `Fraud Triangle|Pressure|Guy@IzFake.info`
 - `Fraud Triangle|Rationalization|Lady@NotReel.uk`
+- `Fraud Triangle|Opportunity|ImportantQueryName`
 - And so on...
 
 # Getting Started
